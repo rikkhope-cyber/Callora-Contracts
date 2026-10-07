@@ -83,7 +83,7 @@ soroban-sdk = { workspace = true, features = ["testutils"] }
 overflow-checks = true
 
 [profile.release]
-# Size optimization settings to keep WASM under Soroban's 64KB limit
+## Size optimization settings to keep contract WASM within the Callora budget
 opt-level = "z"           # Optimize for size (more aggressive than "s")
 overflow-checks = true    # Keep overflow checks for safety
 debug = 0                 # No debug info
