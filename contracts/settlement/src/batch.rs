@@ -34,15 +34,6 @@ impl From<SettlementError> for SettleOutcome {
     }
 }
 
-/// Errors returned by [`batch_settle`] when the whole batch is
-/// rejected before any per-item processing occurs.
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub enum SettlementError {
-    BatchEmpty,
-    BatchTooLarge,
-    CrossTenantBatch,
-}
 
 pub fn batch_settle(
     env: &Env,
