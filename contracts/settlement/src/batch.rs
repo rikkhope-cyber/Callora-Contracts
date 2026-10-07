@@ -26,15 +26,25 @@ impl From<SettlementError> for SettleOutcome {
         match err {
             SettlementError::AmountNotPositive => SettleOutcome::AmountNotPositive,
             SettlementError::ClaimWindowClosed => SettleOutcome::ClaimWindowClosed,
-            SettlementError::InsufficientDeveloperBalance => SettleOutcome::InsufficientBalance,
-            SettlementError::DailyWithdrawCapExceeded => SettleOutcome::DailyWithdrawCapExceeded,
-            SettlementError::DeveloperBalanceUnderflow => SettleOutcome::DeveloperBalanceUnderflow,
+            SettlementError::InsufficientDeveloperBalance => {
+                SettleOutcome::InsufficientBalance
+            }
+            SettlementError::DailyWithdrawCapExceeded => {
+                SettleOutcome::DailyWithdrawCapExceeded
+            }
+            SettlementError::DeveloperBalanceUnderflow => {
+                SettleOutcome::DeveloperBalanceUnderflow
+            }
             _ => SettleOutcome::OtherError,
         }
     }
 }
 
-
+/// Execute a batch of settlement operations.
+///
+/// Batch-level validation errors are returned before any per-item processing.
+/// Individual settlement errors are converted into `SettleOutcome` values so
+/// that each input receives one corresponding outcome.
 pub fn batch_settle(
     env: &Env,
     settlements: Vec<SettleInput>,
@@ -42,34 +52,30 @@ pub fn batch_settle(
     let mut outcomes = Vec::new(env);
 
     if settlements.is_empty() {
-        return Err((SettlementError::BatchEmpty));
+        return Err(SettlementError::BatchEmpty);
     }
 
     if settlements.len() > MAX_BATCH_SIZE {
-        return Err((SettlementError::BatchTooLarge));
+        return Err(SettlementError::BatchTooLarge);
     }
 
-    // Cross-tenant validation before mutation: every item must belong to the
-    // same claimant. Per-item authorization is enforced inside
-    // `withdraw_developer_balance` (each item requires the claimant's auth), so
-    // no extra top-level `require_auth` is needed here.
+    // All items in a batch must belong to the same developer/tenant.
     let claimant = settlements.get_unchecked(0).developer.clone();
 
     for input in settlements.iter() {
         if input.developer != claimant {
-            return Err((SettlementError::CrossTenantBatch));
+            return Err(SettlementError::CrossTenantBatch);
         }
     }
 
     for input in settlements.iter() {
-        // We use CalloraSettlement::withdraw_developer_balance internally
-        // but we must catch the error to allow partial success.
         let res = CalloraSettlement::withdraw_developer_balance(
             env.clone(),
             input.developer.clone(),
             input.amount,
             input.to.clone(),
         );
+
         match res {
             Ok(_) => outcomes.push_back(SettleOutcome::Success),
             Err(e) => outcomes.push_back(e.into()),
@@ -82,7 +88,6 @@ pub fn batch_settle(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::MAX_BATCH_SIZE;
     use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
 
     fn make_input(env: &Env, dev: Address) -> SettleInput {
@@ -99,6 +104,7 @@ mod test {
         let settlements = Vec::new(&env);
 
         let result = batch_settle(&env, settlements);
+
         assert!(result.is_err());
         assert_eq!(result.unwrap_error(), SettlementError::BatchEmpty);
     }
@@ -108,12 +114,15 @@ mod test {
         let env = Env::default();
         let mut settlements = Vec::new(&env);
 
-        // Push MAX_BATCH_SIZE + 1 items (exceeding the contract-wide cap)
         for _ in 0..(MAX_BATCH_SIZE + 1) {
-            settlements.push_back(make_input(&env, Address::generate(&env)));
+            settlements.push_back(make_input(
+                &env,
+                Address::generate(&env),
+            ));
         }
 
         let result = batch_settle(&env, settlements);
+
         assert!(result.is_err());
         assert_eq!(result.unwrap_error(), SettlementError::BatchTooLarge);
     }
@@ -130,7 +139,11 @@ mod test {
         settlements.push_back(make_input(&env, bob));
 
         let result = batch_settle(&env, settlements);
+
         assert!(result.is_err());
-        assert_eq!(result.unwrap_error(), SettlementError::CrossTenantBatch);
+        assert_eq!(
+            result.unwrap_error(),
+            SettlementError::CrossTenantBatch
+        );
     }
 }
